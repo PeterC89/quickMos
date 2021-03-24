@@ -28,14 +28,20 @@ import {
 	IMOSListMachInfo,
 	MosTime
 } from 'mos-connection'
+import { Parser as MosParser, Parser } from 'mos-connection/dist/mosModel/Parser'
 import { diffLists, ListEntry, OperationType } from './mosDiff'
 import * as crypto from 'crypto'
+import { Parser as xml2js } from 'xml2js'
 
 console.log('Starting Quick-MOS')
 
 const DELAY_TIME = 300 // ms
 
 // const tsr = new TSRHandler(console.log)
+
+const xmlParser = new xml2js({
+	explicitArray: false
+})
 
 const watcher = chokidar.watch('input/**', { ignored: /^\./, persistent: true })
 
@@ -257,6 +263,41 @@ function fetchRunningOrders () {
 				stories: fileContents.fullStories
 			})
 
+		}
+		if (filePath.match(/\.xml$/i)) {
+
+			const fileContents = fs.readFileSync(filePath, 'utf-8')
+			let matches = fileContents.split(/(<mos\b\s*>[\s|\S]*?<\/mos\b\s*>)/im)
+			matches = matches.filter(x => x.trim().length > 0)
+
+			let ro: IMOSRunningOrder = null as any
+			const stories: IMOSROFullStory[] = []
+
+			matches.forEach(match => {
+				xmlParser.parseString(match, (error: Error, result: any) => {
+					if (error) {
+						console.warn(`Unable to parse XML - ${filePath}`)
+						console.debug(error)
+						return
+					}
+					if (!Object.prototype.hasOwnProperty.call(result, 'mos')) {
+						console.warn(`Missing root 'mos' node - ${filePath}`)
+						return
+					}
+					if (Object.prototype.hasOwnProperty.call(result.mos, 'roCreate')) {
+						ro = Parser.xml2RO(result.mos.roCreate)
+					}
+					if (Object.prototype.hasOwnProperty.call(result.mos, 'roStorySend')) {
+						stories.push(Parser.xml2FullStory(result.mos.roStorySend))
+					}	
+				})
+			})
+			if (ro) {
+				runningOrders.push({
+					ro,
+					stories: stories
+				})
+			}
 		}
 	})
 	return runningOrders
